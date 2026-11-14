@@ -139,7 +139,12 @@ chrome.runtime.onMessage.addListener((request, sender, reply) => {
   } else {
     return;
   }
-  enqueue(operation).then(reply, error => reply({ error: error.message }));
+  enqueue(operation).then(reply, error => {
+    const message = error.message.includes('Access to the specified native messaging host is forbidden')
+      ? `Chrome отклонил доступ к помощнику. Повтори установку с ID этого расширения: ${chrome.runtime.id}. Если ошибка останется, проверь политики NativeMessaging на chrome://policy.`
+      : error.message;
+    reply({ error: message });
+  });
   return true;
 });
 
