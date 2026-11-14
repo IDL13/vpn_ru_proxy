@@ -90,22 +90,28 @@ def request(process, action, payload=None):
 def expect_stopped():
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline:
-        connection = http.client.HTTPConnection("127.0.0.1", 17892, timeout=0.25)
+        # Winsock can take about a second to refuse a loopback connection.
+        connection = http.client.HTTPConnection("127.0.0.1", 17892, timeout=2)
         try:
             connection.connect()
         except ConnectionRefusedError:
             return
+        except TimeoutError:
+            pass
         finally:
             connection.close()
         time.sleep(0.05)
-    raise AssertionError("Port 17892 is still open")
+    raise AssertionError("Port 17892 did not refuse connections within 5 seconds")
 
 
 class LocalPage(http.server.BaseHTTPRequestHandler):
+    BODY = b"VPN RU Proxy smoke test"
+
     def do_GET(self):
         self.send_response(200)
+        self.send_header("Content-Length", str(len(self.BODY)))
         self.end_headers()
-        self.wfile.write(b"VPN RU Proxy smoke test")
+        self.wfile.write(self.BODY)
 
 
 def check_proxy():
@@ -117,7 +123,7 @@ def check_proxy():
             try:
                 connection.request("GET", f"http://127.0.0.1:{server.server_port}/")
                 response = connection.getresponse()
-                assert response.status == 200 and response.read() == b"VPN RU Proxy smoke test"
+                assert response.status == 200 and response.read() == LocalPage.BODY
             finally:
                 connection.close()
         finally:

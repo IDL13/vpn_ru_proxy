@@ -266,6 +266,10 @@ impl Manager {
         match TcpStream::connect_timeout(&address, Duration::from_millis(80)) {
             Ok(_) => return Err(format!("Порт прокси {PROXY} уже занят.").into()),
             Err(error) if error.kind() == io::ErrorKind::ConnectionRefused => (),
+            // Winsock may time out before reporting that a localhost port has no listener.
+            // In that case sing-box's own bind determines whether the port is available.
+            #[cfg(windows)]
+            Err(error) if error.kind() == io::ErrorKind::TimedOut => (),
             Err(error) => return Err(format!("Порт прокси {PROXY} недоступен: {error}").into()),
         }
         let log_path = self.directory.join("sing-box.log");
