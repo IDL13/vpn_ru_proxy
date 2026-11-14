@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "VPN RU Proxy",
   "description": "Запускает и останавливает локальный прокси VPN RU Proxy.",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "minimum_chrome_version": "105",
   "permissions": ["proxy", "nativeMessaging"],
   "icons": {

@@ -1,4 +1,5 @@
-use crate::{amnezia, data_directory, shutdown, write_json, Edit, Manager, Result, Settings};
+use crate::{amnezia, platform, shutdown, write_json, Edit, Manager, Result, Settings};
+use platform::data_directory;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{
@@ -20,17 +21,11 @@ pub fn install(extension_id: &str, chrome_directory: Option<PathBuf>) -> Result<
     {
         return Err("Укажи ID расширения VPN RU Proxy из chrome://extensions.".into());
     }
-    let chrome_directory = match chrome_directory {
-        Some(directory) => directory,
-        None => {
-            let user_directory = env::var_os("HOME").ok_or("Не найдена папка пользователя")?;
-            PathBuf::from(user_directory).join("Library/Application Support/Google/Chrome")
-        }
-    };
-    let directory = chrome_directory.join("NativeMessagingHosts");
+    let directory = platform::manifest_directory(chrome_directory)?;
     fs::create_dir_all(&directory)?;
+    let manifest = directory.join(format!("{HOST_NAME}.json"));
     write_json(
-        &directory.join(format!("{HOST_NAME}.json")),
+        &manifest,
         &json!({
             "name": HOST_NAME,
             "description": "VPN RU Proxy",
@@ -39,6 +34,8 @@ pub fn install(extension_id: &str, chrome_directory: Option<PathBuf>) -> Result<
             "allowed_origins": [format!("chrome-extension://{extension_id}/")],
         }),
     )?;
+    #[cfg(windows)]
+    platform::register_host(HOST_NAME, &manifest)?;
     println!("VPN RU Proxy подключён к Chrome. Открой расширение, чтобы включить прокси.");
     Ok(())
 }

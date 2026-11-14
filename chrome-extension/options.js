@@ -1,12 +1,22 @@
 const form = document.getElementById('settings');
-const ui = Object.fromEntries(['interface', 'sites', 'message', 'save', 'import', 'json-file']
+const ui = Object.fromEntries(['interface', 'interface-hint', 'dns-server', 'sites', 'message', 'save', 'import', 'json-file']
   .map(id => [id, document.getElementById(id)]));
 let loaded = false;
+
+chrome.runtime.getPlatformInfo().then(({ os }) => {
+  const examples = {
+    mac: 'Имя устройства Wi-Fi или Ethernet, например en0.',
+    win: 'Имя адаптера из Get-NetAdapter -Physical, например Wi-Fi или Ethernet.',
+    linux: 'Имя интерфейса из ip -br link, например wlp2s0 или enp3s0.',
+  };
+  ui['interface-hint'].textContent = examples[os] || 'Укажи имя интерфейса Wi-Fi или Ethernet.';
+});
 
 function setBusy(busy) {
   ui.save.disabled = busy || !loaded;
   ui.import.disabled = busy || !loaded;
   ui.interface.disabled = busy || !loaded;
+  ui['dns-server'].disabled = busy || !loaded;
   ui.sites.disabled = busy || !loaded;
 }
 
@@ -34,12 +44,13 @@ async function act(operation) {
 
 function showSettings({ settings }) {
   ui.interface.value = settings.interface;
+  ui['dns-server'].value = settings.dns_server ?? '';
   ui.sites.value = settings.sites.join('\n');
 }
 
 form.addEventListener('submit', event => {
   event.preventDefault();
-  const payload = { interface: ui.interface.value, sites: ui.sites.value };
+  const payload = { interface: ui.interface.value, sites: ui.sites.value, dns_server: ui['dns-server'].value };
   act(async () => {
     showSettings(await api('save', payload));
     ui.message.textContent = 'Список сохранён.';

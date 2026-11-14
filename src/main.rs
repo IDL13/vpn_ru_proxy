@@ -1,13 +1,14 @@
 mod amnezia;
 mod native;
+mod platform;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     env, fs, io,
-    net::{IpAddr, SocketAddr, TcpListener, TcpStream},
+    net::{IpAddr, SocketAddr, TcpStream},
     path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
+    process::{Command, Stdio},
     thread,
     time::{Duration, Instant},
 };
@@ -21,12 +22,16 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>
 struct Settings {
     interface: String,
     sites: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    dns_server: Option<IpAddr>,
 }
 
 #[derive(Deserialize)]
 struct Edit {
     interface: String,
     sites: String,
+    #[serde(default)]
+    dns_server: String,
 }
 
 impl Edit {
@@ -35,6 +40,16 @@ impl Edit {
         if interface.is_empty() || interface.chars().any(char::is_control) {
             return Err("Укажи имя сетевого интерфейса.".into());
         }
+        let dns_server = self.dns_server.trim();
+        let dns_server = if dns_server.is_empty() {
+            None
+        } else {
+            Some(
+                dns_server
+                    .parse()
+                    .map_err(|_| "Укажи IP-адрес DNS-сервера.")?,
+            )
+        };
         Ok(Settings {
             interface: interface.into(),
             sites: normalize_sites(
@@ -42,6 +57,7 @@ impl Edit {
                     .split(|c: char| c.is_whitespace() || matches!(c, ',' | ';'))
                     .filter(|part| !part.is_empty()),
             )?,
+            dns_server,
         })
     }
 }
@@ -128,11 +144,19 @@ fn config(settings: &Settings) -> Value {
             rules.push(json!({ (field): values, "action": "route", "outbound": "without-vpn" }));
         }
     }
+    let physical_dns = match settings.dns_server {
+        Some(server) => {
+            json!({"type": "udp", "tag": "physical-dns", "server": server, "bind_interface": settings.interface})
+        }
+        None => {
+            json!({"type": "local", "tag": "physical-dns", "bind_interface": settings.interface})
+        }
+    };
     json!({
         "log": {"level": "info"},
         "dns": {"servers": [
             {"type": "local", "tag": "system-dns"},
-            {"type": "local", "tag": "physical-dns", "bind_interface": settings.interface}
+            physical_dns
         ]},
         "inbounds": [{"type": "mixed", "listen": "127.0.0.1", "listen_port": 17892, "set_system_proxy": false}],
         "outbounds": [
@@ -146,7 +170,7 @@ fn config(settings: &Settings) -> Value {
 struct Manager {
     directory: PathBuf,
     settings: Settings,
-    child: Option<Child>,
+    child: Option<platform::ProxyProcess>,
     _lock: fs::File,
 }
 
@@ -159,8 +183,9 @@ impl Settings {
                 Ok(settings)
             }
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Self {
-                interface: "en0".into(),
+                interface: platform::default_interface().into(),
                 sites: Vec::new(),
+                dns_server: None,
             }),
             Err(error) => Err(error.into()),
         }
@@ -196,7 +221,7 @@ impl Manager {
 
     fn running(&mut self) -> Result<bool> {
         if let Some(child) = &mut self.child {
-            if child.try_wait()?.is_none() {
+            if child.child.try_wait()?.is_none() {
                 return Ok(true);
             }
             self.child = None;
@@ -204,34 +229,23 @@ impl Manager {
         Ok(false)
     }
 
-    fn sing_box(&self, operation: &str, config: &Path) -> Command {
-        let program = env::var_os("SING_BOX_BIN").unwrap_or_else(|| {
-            // Chrome launched from Finder may not inherit Homebrew's PATH.
-            for path in ["/opt/homebrew/bin/sing-box", "/usr/local/bin/sing-box"] {
-                if Path::new(path).is_file() {
-                    return path.into();
-                }
-            }
-            "sing-box".into()
-        });
-        let mut command = Command::new(program);
+    fn sing_box(&self, operation: &str, config: &Path) -> Result<Command> {
+        let mut command = platform::command(platform::sing_box_program()?);
         command
             .arg(operation)
             .arg("-D")
             .arg(&self.directory)
             .arg("-c")
             .arg(config);
-        command
+        Ok(command)
     }
 
     fn prepare(&self, settings: &Settings) -> Result<()> {
-        if settings.interface.is_empty() {
-            return Err("Укажи сетевой интерфейс перед запуском.".into());
-        }
+        platform::validate_interface(&settings.interface)?;
         let candidate = self.directory.join("sing-box-candidate.json");
         write_json(&candidate, &config(settings))?;
         let output = self
-            .sing_box("check", &candidate)
+            .sing_box("check", &candidate)?
             .output()
             .map_err(|error| format!("Не удалось вызвать sing-box: {error}"))?;
         if !output.status.success() {
@@ -247,21 +261,22 @@ impl Manager {
     }
 
     fn launch(&mut self) -> Result<()> {
-        drop(
-            TcpListener::bind(PROXY)
-                .map_err(|error| format!("Порт прокси {PROXY} недоступен: {error}"))?,
-        );
+        let address: SocketAddr = PROXY.parse()?;
+        // An extra listener can fail while old connections are in TIME_WAIT.
+        match TcpStream::connect_timeout(&address, Duration::from_millis(80)) {
+            Ok(_) => return Err(format!("Порт прокси {PROXY} уже занят.").into()),
+            Err(error) if error.kind() == io::ErrorKind::ConnectionRefused => (),
+            Err(error) => return Err(format!("Порт прокси {PROXY} недоступен: {error}").into()),
+        }
         let log_path = self.directory.join("sing-box.log");
         let log = fs::File::create(&log_path)?;
-        self.child = Some(
-            self.sing_box("run", &self.directory.join("sing-box.json"))
-                .stdin(Stdio::null())
-                .stdout(log.try_clone()?)
-                .stderr(log)
-                .spawn()?,
-        );
+        let mut command = self.sing_box("run", &self.directory.join("sing-box.json"))?;
+        command
+            .stdin(Stdio::null())
+            .stdout(log.try_clone()?)
+            .stderr(log);
+        self.child = Some(platform::ProxyProcess::spawn(command)?);
         let deadline = Instant::now() + Duration::from_secs(3);
-        let address: SocketAddr = PROXY.parse()?;
         while self.running()? && Instant::now() < deadline {
             if TcpStream::connect_timeout(&address, Duration::from_millis(80)).is_ok() {
                 return Ok(());
@@ -287,7 +302,7 @@ impl Manager {
 
     fn stop(&mut self) -> Result<()> {
         if self.running()? {
-            let child = self.child.as_mut().expect("running child");
+            let child = &mut self.child.as_mut().expect("running child").child;
             if let Err(error) = child.kill() {
                 if child.try_wait()?.is_none() {
                     return Err(error.into());
@@ -343,14 +358,6 @@ fn write_json(path: &Path, value: &impl Serialize) -> Result<()> {
     Ok(())
 }
 
-fn data_directory() -> Result<PathBuf> {
-    if let Some(path) = env::var_os("VPN_RU_PROXY_DATA_DIR") {
-        return Ok(path.into());
-    }
-    let home = env::var_os("HOME").ok_or("Не найдена папка пользователя")?;
-    Ok(PathBuf::from(home).join("Library/Application Support/vpn-ru-proxy"))
-}
-
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     let mut arguments = env::args_os().skip(1);
@@ -382,5 +389,7 @@ async fn shutdown() {
         }
         return;
     }
-    let _ = tokio::signal::ctrl_c().await;
+    if tokio::signal::ctrl_c().await.is_err() {
+        std::future::pending::<()>().await;
+    }
 }

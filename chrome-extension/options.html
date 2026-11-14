@@ -32,7 +32,10 @@
     <h1>Сайты без VPN</h1>
     <form id="settings">
       <label for="interface">Сетевой интерфейс</label>
-      <input id="interface" name="interface" required spellcheck="false" autocomplete="off">
+      <input id="interface" name="interface" required spellcheck="false" autocomplete="off" aria-describedby="interface-hint">
+      <p class="hint" id="interface-hint"></p>
+      <label for="dns-server">DNS для сайтов из списка (необязательно)</label>
+      <input id="dns-server" name="dns-server" spellcheck="false" autocomplete="off" placeholder="IP-адрес DNS-сервера">
       <label for="sites">Домены, ссылки или IP-адреса</label>
       <textarea id="sites" name="sites" spellcheck="false" placeholder="example.com&#10;*.example.com" aria-describedby="sites-hint"></textarea>
       <p class="hint" id="sites-hint">По одному на строку или через запятую. Домен включает его поддомены. Например, ozon.ru покрывает и www.ozon.ru.</p>
