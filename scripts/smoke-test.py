@@ -88,10 +88,23 @@ def request(process, action, payload=None):
 
 
 def expect_stopped():
+    if WINDOWS:
+        # A refused connection is not guaranteed on Windows runners.
+        # Read the listener table so a dropped SYN cannot mask an open port.
+        owners = subprocess.check_output([
+            "powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+            "$ErrorActionPreference = 'Stop'; "
+            "Get-NetTCPConnection -State Listen | "
+            "Where-Object { $_.LocalPort -eq 17892 -and "
+            "$_.LocalAddress -in '127.0.0.1', '0.0.0.0', '::' } | "
+            "Select-Object -ExpandProperty OwningProcess",
+        ], text=True, timeout=10).strip()
+        assert not owners, f"Port 17892 still has a Windows listener (PID: {owners})"
+        return
+
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline:
-        # Winsock can take about a second to refuse a loopback connection.
-        connection = http.client.HTTPConnection("127.0.0.1", 17892, timeout=2)
+        connection = http.client.HTTPConnection("127.0.0.1", 17892, timeout=0.25)
         try:
             connection.connect()
         except ConnectionRefusedError:
