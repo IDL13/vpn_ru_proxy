@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VPN RU Proxy</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; background: #141820; color: #edf1f7; }
+    body { width: 260px; margin: 0; padding: 16px; box-sizing: border-box; }
+    h1 { font-size: 17px; margin: 0 0 10px; }
+    p { font-size: 13px; line-height: 1.4; }
+    p { margin: 10px 0; }
+    button { width: 100%; border: 0; border-radius: 7px; padding: 9px; background: #a5e7c3; color: #13241c; font: inherit; font-size: 13px; font-weight: 650; cursor: pointer; }
+    button:disabled { opacity: .5; cursor: default; }
+    #panel { background: transparent; color: #a5e7c3; margin-top: 6px; }
+    #error { color: #ffb8b4; overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+  <h1>VPN RU Proxy</h1>
+  <p id="status" role="status">Проверяю состояние sing-box…</p>
+  <button id="toggle" type="button" disabled>Включить</button>
+  <p id="error" role="alert" hidden></p>
+  <button id="panel" type="button">Настроить список сайтов</button>
+  <script src="popup.js"></script>
+</body>
+</html>

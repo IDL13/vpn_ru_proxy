@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "VPN RU Proxy",
+  "description": "Запускает и останавливает локальный прокси VPN RU Proxy.",
+  "version": "0.3.1",
+  "minimum_chrome_version": "105",
+  "permissions": ["proxy", "nativeMessaging"],
+  "icons": {
+    "16": "icons/logo-16.png",
+    "32": "icons/logo-32.png",
+    "48": "icons/logo-48.png",
+    "128": "icons/logo-128.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "action": {
+    "default_title": "VPN RU Proxy",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/logo-16.png",
+      "32": "icons/logo-32.png"
+    }
+  }
+}

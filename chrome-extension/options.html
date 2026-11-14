@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Сайты без VPN</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; background: #141820; color: #edf1f7; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    main { max-width: 690px; margin: 0 auto; padding: 56px 22px; }
+    h1 { margin: 0 0 26px; font-size: clamp(25px, 6vw, 35px); letter-spacing: -.04em; }
+    form { border: 1px solid #353d4d; border-radius: 14px; padding: 23px; background: #202633; }
+    label { display: block; font-size: 15px; font-weight: 650; margin-bottom: 8px; }
+    input, textarea { display: block; width: 100%; border: 1px solid #49556a; border-radius: 7px; background: #151b26; color: inherit; padding: 11px 13px; font: 14px/1.5 ui-monospace, monospace; }
+    input { max-width: 240px; margin-bottom: 20px; }
+    textarea { min-height: 190px; resize: vertical; }
+    textarea::placeholder { color: #a3afc1; }
+    .hint { color: #b9c2d0; font-size: 13px; line-height: 1.5; margin: 8px 0 20px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; }
+    button { font: inherit; font-size: 14px; font-weight: 650; cursor: pointer; border: 1px solid #4b5971; border-radius: 7px; padding: 9px 13px; color: inherit; background: #2d374a; }
+    button.primary { background: #a5e7c3; color: #13241c; border-color: #a5e7c3; }
+    button:disabled { opacity: .5; cursor: default; }
+    [hidden] { display: none; }
+    :focus-visible { outline: 2px solid #a5e7c3; outline-offset: 2px; }
+    #message { min-height: 1.5em; color: #b9c2d0; font-size: 14px; overflow-wrap: anywhere; }
+    #message[data-error="true"] { color: #ffb8b4; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Сайты без VPN</h1>
+    <form id="settings">
+      <label for="interface">Сетевой интерфейс</label>
+      <input id="interface" name="interface" required spellcheck="false" autocomplete="off">
+      <label for="sites">Домены, ссылки или IP-адреса</label>
+      <textarea id="sites" name="sites" spellcheck="false" placeholder="example.com&#10;*.example.com" aria-describedby="sites-hint"></textarea>
+      <p class="hint" id="sites-hint">По одному на строку или через запятую. Домен включает его поддомены. Например, ozon.ru покрывает и www.ozon.ru.</p>
+      <div class="actions">
+        <button id="save" class="primary" type="submit">Сохранить список</button>
+        <button id="import" type="button">Заменить из JSON</button>
+        <input id="json-file" type="file" accept=".json,application/json" hidden>
+      </div>
+    </form>
+    <p id="message" role="status"></p>
+  </main>
+  <script src="options.js"></script>
+</body>
+</html>
