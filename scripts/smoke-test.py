@@ -5,6 +5,7 @@ import http.server
 import json
 import os
 from pathlib import Path
+import stat
 import struct
 import subprocess
 import sys
@@ -61,7 +62,10 @@ def register(helper, directory, env):
 
 @contextmanager
 def native_host(helper, env):
-    process = subprocess.Popen([helper, ORIGIN], env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+    options = {} if WINDOWS else {"umask": 0}
+    process = subprocess.Popen(
+        [helper, ORIGIN], env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, **options,
+    )
     try:
         yield process
         if process.poll() is None:
@@ -85,6 +89,11 @@ def request(process, action, payload=None):
     header = process.stdout.read(4)
     assert len(header) == 4, f"No response to {action}"
     return json.loads(process.stdout.read(struct.unpack("=I", header)[0]))
+
+
+def expect_permissions(path, expected):
+    mode = stat.S_IMODE(path.stat().st_mode)
+    assert mode == expected, f"{path.name}: {mode:o}, expected {expected:o}"
 
 
 def expect_stopped():
@@ -163,11 +172,26 @@ def main():
         data = directory / "settings"
         env = os.environ | {"VPN_RU_PROXY_DATA_DIR": str(data), "SING_BOX_BIN": str(sing_box)}
         register(helper, directory, env)
+        if not WINDOWS:
+            with native_host(helper, env) as process:
+                assert request(process, "settings")["settings"]["sites"] == []
+            expect_permissions(data, 0o700)
+            data.chmod(0o755)
+            (data / "settings.json").write_text(
+                json.dumps({"interface": interface, "sites": []}), encoding="utf-8",
+            )
+            (data / "sing-box.log").touch()
+            (data / "settings.json").chmod(0o644)
+            (data / "sing-box.log").chmod(0o644)
         if not config_only:
             expect_stopped()
         with native_host(helper, env) as process:
             assert request(process, "status") == {"running": False}
             assert request(process, "settings")["settings"]["sites"] == []
+            if not WINDOWS:
+                expect_permissions(data, 0o700)
+                expect_permissions(data / "settings.json", 0o600)
+                expect_permissions(data / "sing-box.log", 0o600)
             assert "error" in request(process, "save", {"interface": interface, "sites": "", "dns_server": "invalid"})
             edit = {"interface": interface, "sites": "https://www.example.com/test", "dns_server": "192.0.2.53"}
             saved = request(process, "save", edit)
@@ -177,14 +201,19 @@ def main():
 
             started = request(process, "start")
             config = json.loads((data / "sing-box.json").read_text(encoding="utf-8"))
+            if not WINDOWS:
+                for name in ("settings.json", "sing-box.json", "sing-box.log", "proxy.lock"):
+                    expect_permissions(data / name, 0o600)
             assert config["dns"]["servers"][1] == {
                 "type": "udp", "tag": "physical-dns", "server": "192.0.2.53", "bind_interface": interface,
             }
             assert config["outbounds"][1]["bind_interface"] == interface
             assert config["route"]["rules"][0]["domain"] == ["example.com"]
             if config_only:
-                assert started.get("running") or "Порт прокси" in started.get("error", ""), started
-                print("Chrome native registration, settings, import and sing-box config validation passed.")
+                subprocess.run(
+                    [sing_box, "check", "-c", data / "sing-box.json"], check=True, timeout=10,
+                )
+                print("Chrome registration, settings, permissions, import and config validation passed.")
                 return
 
             assert started == {"running": True}, started

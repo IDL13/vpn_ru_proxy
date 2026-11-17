@@ -10,6 +10,8 @@ VPN RU Proxy направляет выбранные сайты из Chrome че
 | Локальный прокси | `127.0.0.1:17892` |
 | Расширение Chrome | [`chrome-extension/`](chrome-extension/) |
 
+Для iPhone и Android есть [экспорт профиля sing-box](#iphone-и-android).
+
 ## Установка
 
 Понадобятся Google Chrome и `sing-box` 1.12 или новее. Установи `sing-box` и проверь его командой `sing-box version`.
@@ -76,6 +78,62 @@ VPN RU Proxy направляет выбранные сайты из Chrome че
   }
 ]
 ```
+
+## iPhone и Android
+
+На телефоне приложение sing-box запускает VPN в режиме TUN. Домены и поддомены из списка идут напрямую через Wi‑Fi или мобильную сеть. Остальной трафик и DNS-запросы, обработанные sing-box, идут через WireGuard. Для проверки экспорта использовался sing-box 1.14.4.
+
+### Подготовка входных файлов
+
+Для списка сайтов подойдёт `amnezia.json` из примера выше или `settings.json` от расширения. Из `settings.json` экспорт берёт только поле `sites`.
+
+Создай каталог `vpn-profiles/`, который исключён из Git, и сохрани базовый профиль в `vpn-profiles/wireguard.json`. Нужен один стандартный WireGuard peer в endpoint с тегом `vpn` и IP-адресом сервера. Пример ниже содержит тестовые адреса и заглушки для ключей. Подставь данные своего сервера и клиента.
+
+```json
+{
+  "endpoints": [
+    {
+      "type": "wireguard",
+      "tag": "vpn",
+      "address": ["10.77.0.2/32", "fd77::2/128"],
+      "private_key": "<PrivateKey клиента>",
+      "peers": [
+        {
+          "address": "203.0.113.10",
+          "port": 51820,
+          "public_key": "<PublicKey сервера>",
+          "allowed_ips": ["0.0.0.0/0", "::/0"]
+        }
+      ]
+    }
+  ]
+}
+```
+
+Если у тебя есть стандартный WireGuard `.conf`, перенеси `Address` и `PrivateKey` из `[Interface]`, а `Endpoint`, `PublicKey` и `AllowedIPs` из `[Peer]`. Для `Endpoint` укажи IP в поле `address` и порт в поле `port`. Если заданы `PresharedKey` или `PersistentKeepalive`, перенеси их в `pre_shared_key` и `persistent_keepalive_interval` соответственно. Для IPv6 через VPN сервер и туннель должны поддерживать IPv6. Экспортёр использует только endpoint с тегом `vpn` и создаёт маршруты и DNS заново. [Формат WireGuard endpoint в sing-box](https://sing-box.sagernet.org/configuration/endpoint/wireguard/).
+
+На этом этапе поддерживается стандартный WireGuard. Файлы подключения AmneziaWG требуют клиента с поддержкой соответствующей версии протокола. [Документация AmneziaWG](https://docs.amnezia.org/documentation/amnezia-wg/).
+
+### Экспорт и запуск
+
+Для проверки добавь в исходный список один домен, который показывает твой внешний IP, например `api.ipify.org`. Оставь второй сайт для проверки вне списка.
+
+```bash
+cargo build --release --locked
+./target/release/vpn-ru-proxy export-mobile amnezia.json vpn-profiles/wireguard.json 10.77.0.1 vpn-profiles/mobile.json
+```
+
+Подставь вместо `10.77.0.1` IP DNS-сервера, который отвечает через твой VPN. В Windows PowerShell запускай `.\target\release\vpn-ru-proxy.exe` с теми же аргументами. Экспортёр проверяет конфигурацию через `sing-box check` перед записью. Для повторного экспорта укажи новое имя выходного файла.
+
+Чтобы добавить прямые маршруты по IPv4 и IPv6, укажи `--include-ips` сразу после `export-mobile`. Сайты вне списка могут использовать тот же IP и тоже пойти напрямую. По умолчанию экспорт включает только маршруты по доменам.
+
+1. Установи sing-box для [iPhone](https://sing-box.sagernet.org/clients/apple/) или [Android](https://sing-box.sagernet.org/clients/android/).
+2. Передай `vpn-profiles/mobile.json` на телефон и добавь его в sing-box как локальный профиль. Профиль и исходный `wireguard.json` содержат приватный ключ WireGuard.
+3. Останови текущий VPN на телефоне, выбери мобильный профиль в sing-box и разреши приложению создать VPN-подключение.
+4. На Wi‑Fi и мобильной сети сравни внешний IP на двух сайтах. Сайт из списка должен показать IP обычного подключения, а второй сайт — IP WireGuard.
+5. Проверь DNS и поведение при недоступном WireGuard-сервере. Пока мобильный профиль активен, трафик вне списка должен потерять доступ, поскольку конфиг направляет его в WireGuard. У перечисленного домена тоже может пропасть разрешение имени, так как DNS идёт через VPN.
+
+Правила по домену применяются, когда sing-box видит имя в HTTP, TLS или QUIC. Если имя скрыто, срабатывает правило по IP либо маршрут через VPN. [Определение доменов в sing-box](https://sing-box.sagernet.org/configuration/route/sniff/).
 
 ## Проверка с включённым VPN
 

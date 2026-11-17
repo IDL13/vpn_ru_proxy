@@ -80,7 +80,13 @@ function requestNative(action, payload) {
 async function status() {
   let running = false;
   if (port) {
-    ({ running } = await requestNative('status'));
+    try {
+      ({ running } = await requestNative('status'));
+    } catch (error) {
+      disconnect();
+      await clearProxy();
+      throw error;
+    }
     if (!running) disconnect();
   }
   let level = await proxyLevel();
@@ -89,6 +95,24 @@ async function status() {
     level = await proxyLevel();
   }
   return { running, level };
+}
+
+async function saveSettings(payload) {
+  const wasConnected = Boolean(port);
+  let response;
+  let saveError;
+  try {
+    response = await requestNative('save', payload);
+  } catch (error) {
+    saveError = error;
+  }
+
+  if (wasConnected && !(await status()).running) {
+    const stopped = 'Прокси недоступен. Настройки прокси Chrome сброшены.';
+    throw new Error(saveError ? `${saveError.message} ${stopped}` : stopped);
+  }
+  if (saveError) throw saveError;
+  return response;
 }
 
 async function start() {
@@ -134,7 +158,9 @@ chrome.runtime.onMessage.addListener((request, sender, reply) => {
   let operation;
   if (fromPopup && Object.hasOwn(popupActions, action)) {
     operation = popupActions[action];
-  } else if (fromOptions && ['settings', 'save', 'import'].includes(action)) {
+  } else if (fromOptions && action === 'save') {
+    operation = () => saveSettings(payload);
+  } else if (fromOptions && ['settings', 'import'].includes(action)) {
     operation = () => requestNative(action, payload);
   } else {
     return;

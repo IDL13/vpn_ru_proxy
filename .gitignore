@@ -1,1 +1,4 @@
 /target/
+/vpn-profiles/
+/wireguard.json
+/mobile.json

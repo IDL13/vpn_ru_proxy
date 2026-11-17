@@ -1,10 +1,13 @@
 use crate::Result;
 use std::{
     env, io,
+    net::SocketAddrV4,
     path::PathBuf,
     process::{Child, Command},
 };
 
+#[cfg(target_os = "linux")]
+mod linux;
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
@@ -68,11 +71,7 @@ pub fn manifest_directory(directory: Option<PathBuf>) -> Result<PathBuf> {
 }
 
 pub fn default_interface() -> &'static str {
-    if cfg!(target_os = "macos") {
-        "en0"
-    } else {
-        ""
-    }
+    if cfg!(target_os = "macos") { "en0" } else { "" }
 }
 
 pub fn validate_interface(name: &str) -> Result<()> {
@@ -82,7 +81,7 @@ pub fn validate_interface(name: &str) -> Result<()> {
     #[cfg(unix)]
     let found = {
         let name = std::ffi::CString::new(name)?;
-        // The name is NUL-terminated and stays valid for the call.
+        // SAFETY: The name is NUL-terminated and stays valid for the call.
         unsafe { libc::if_nametoindex(name.as_ptr()) != 0 }
     };
     #[cfg(windows)]
@@ -149,7 +148,7 @@ pub fn command(path: PathBuf) -> Command {
 }
 
 pub struct ProxyProcess {
-    pub child: Child,
+    child: Child,
     #[cfg(windows)]
     _job: windows::Job,
 }
@@ -160,8 +159,10 @@ impl ProxyProcess {
         {
             use std::os::unix::process::CommandExt;
 
-            let parent = std::process::id() as libc::pid_t;
-            // Only async-signal-safe operations run between fork and exec.
+            let parent = libc::pid_t::try_from(std::process::id())
+                .map_err(|_| io::ErrorKind::InvalidData)?;
+            // SAFETY: The closure captures only a PID and uses async-signal-safe
+            // operations and OS error values between fork and exec.
             unsafe {
                 command.pre_exec(move || {
                     if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL, 0, 0, 0) == -1 {
@@ -191,5 +192,45 @@ impl ProxyProcess {
         }
         #[cfg(not(windows))]
         Ok(Self { child })
+    }
+
+    pub fn is_running(&mut self) -> io::Result<bool> {
+        Ok(self.child.try_wait()?.is_none())
+    }
+
+    pub fn is_listening(&mut self, address: SocketAddrV4) -> io::Result<bool> {
+        if !self.is_running()? {
+            return Ok(false);
+        }
+        let pid = self.child.id();
+        #[cfg(target_os = "linux")]
+        let listening = linux::owns_tcp_listener(pid, address)?;
+        #[cfg(windows)]
+        let listening = windows::owns_tcp_listener(pid, address)?;
+        #[cfg(target_os = "macos")]
+        let listening = Command::new("/usr/sbin/lsof")
+            .args(["-nP", "-a", "-sTCP:LISTEN", "-Fp", "-p"])
+            .arg(pid.to_string())
+            .arg(format!("-iTCP@{address}"))
+            .output()?;
+        #[cfg(target_os = "macos")]
+        let listening = listening.status.success()
+            && String::from_utf8_lossy(&listening.stdout)
+                .lines()
+                .any(|line| line == format!("p{pid}"));
+
+        Ok(listening && self.is_running()?)
+    }
+
+    pub fn stop(&mut self) -> io::Result<()> {
+        if self.is_running()? {
+            if let Err(error) = self.child.kill()
+                && self.is_running()?
+            {
+                return Err(error);
+            }
+            self.child.wait()?;
+        }
+        Ok(())
     }
 }

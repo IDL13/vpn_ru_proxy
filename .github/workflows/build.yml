@@ -56,6 +56,8 @@ jobs:
         run: |
           cargo test --locked
           cargo build --release --locked
+      - name: Test Chrome proxy settings
+        run: node --test scripts/test-background.cjs
       - name: Install sing-box for smoke checks
         run: |
           name="sing-box-$SING_BOX_VERSION-$SING_BOX_PLATFORM"

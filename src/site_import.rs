@@ -1,9 +1,9 @@
-use crate::{normalize, Result};
+use crate::{Result, settings::normalize_site};
 use serde::Deserialize;
 use std::{collections::BTreeSet, net::IpAddr};
 
 #[derive(Deserialize)]
-pub struct Entry {
+pub(crate) struct AmneziaEntry {
     hostname: String,
     #[serde(default)]
     ip: String,
@@ -11,12 +11,12 @@ pub struct Entry {
     ips: Vec<String>,
 }
 
-pub fn sites(entries: Vec<Entry>) -> Result<BTreeSet<String>> {
+pub(crate) fn import_amnezia_sites(entries: Vec<AmneziaEntry>) -> Result<BTreeSet<String>> {
     let mut sites = BTreeSet::new();
     for (index, entry) in entries.into_iter().enumerate() {
         let hostname = entry.hostname.trim();
         if !hostname.is_empty() {
-            let site = normalize(hostname)
+            let site = normalize_site(hostname)
                 .ok_or_else(|| format!("Некорректный hostname в записи №{}.", index + 1))?;
             sites.insert(site);
         }
